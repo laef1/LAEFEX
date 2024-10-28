@@ -37,4 +37,4 @@ To use **LAEFEX**, follow these simple steps:
 
 1. Clone the repository:
    ```bash
-   git clone https://github.com/yourusername/laefex.git
+   git clone https://github.com/laef1/laefex.git
