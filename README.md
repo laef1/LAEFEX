@@ -6,7 +6,7 @@
 [![Python](https://img.shields.io/badge/Python-3.7%2B-blue.svg)](https://www.python.org/downloads/)
 [![License](https://img.shields.io/badge/License-MIT-yellow.svg)](./LICENSE)
 
-LAEFEX is a powerful and user-friendly Python code editor and executor built with PyQt6. It offers a rich set of features to enhance your coding experience, including syntax highlighting, code folding, autocompletion, error underlining, code snippets, and an integrated mini-map for quick navigation.
+LAEFEX is a powerful and user-friendly Python code editor and executor built with PyQt6. It offers a rich set of features to enhance your coding experience, including syntax highlighting, code folding, autocompletion, error underlining, code snippets, and an integrated mini-map for quick navigation. **EARLY BETA. PURELY FOR DESIGNS RIGHT NOW.**
 
 ![LAEFEX Screenshot](./screenshots/laefex_main.png)
 
