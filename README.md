@@ -62,5 +62,5 @@ LAEFEX is a powerful and user-friendly Python code editor and executor built wit
 1. **Clone the Repository**
 
    ```bash
-   git clone https://github.com/yourusername/LAEFEX.git
+   git clone https://github.com/laef1/LAEFEX.git
    cd LAEFEX
