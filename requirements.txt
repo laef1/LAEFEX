@@ -1,0 +1,4 @@
+```txt
+PyQt6>=6.0
+qtawesome>=1.0.0
+Pygments>=2.0.0  # Optional
