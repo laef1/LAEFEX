@@ -1,40 +1,66 @@
-# LAEFEX - Python Code Executor
+# LAEFEX - Lightweight Advanced Executable Framework for EXecution
 
-## Overview
+**Version 1.1.0**
 
-**LAEFEX** is a sleek and intuitive Python Code Executor GUI designed for developers and learners who want a simple and effective way to write, execute, and debug Python code. This lightweight tool allows users to run Python scripts within a modern interface, without the need for complex IDEs or command-line interaction.
+[![PyQt6](https://img.shields.io/badge/PyQt6-6.x-green.svg)](https://pypi.org/project/PyQt6/)
+[![Python](https://img.shields.io/badge/Python-3.7%2B-blue.svg)](https://www.python.org/downloads/)
+[![License](https://img.shields.io/badge/License-MIT-yellow.svg)](./LICENSE)
 
-With its built-in code editor and live execution capabilities, LAEFEX streamlines the process of testing snippets, debugging small programs, and learning Python through experimentation. Whether you're a seasoned developer or just starting out, LAEFEX provides a smooth coding experience.
+LAEFEX is a powerful and user-friendly Python code editor and executor built with PyQt6. It offers a rich set of features to enhance your coding experience, including syntax highlighting, code folding, autocompletion, error underlining, code snippets, and an integrated mini-map for quick navigation.
+
+![LAEFEX Screenshot](./screenshots/laefex_main.png)
+
+---
+
+## Table of Contents
+
+- [Features](#features)
+- [Installation](#installation)
+- [Getting Started](#getting-started)
+- [Directory Structure](#directory-structure)
+- [Usage](#usage)
+  - [Code Editing](#code-editing)
+  - [Running Code](#running-code)
+  - [Debugging](#debugging)
+  - [Terminal Output](#terminal-output)
+  - [Settings](#settings)
+- [Screenshots](#screenshots)
+- [Contributing](#contributing)
+- [License](#license)
+- [Acknowledgments](#acknowledgments)
+- [Contact](#contact)
+
+---
 
 ## Features
 
-- **Integrated Code Editor**: Supports multiline Python code input, allowing you to write and modify scripts directly in the GUI.
-- **One-Click Execution**: Easily run Python scripts with the click of a button and instantly view the results.
-- **Live Output Display**: See the execution output or any errors in real-time, displayed within the interface.
-- **Minimalist Design**: Dark-themed, modern interface focused on providing a clean and efficient user experience.
+- **Syntax Highlighting**: Enhanced highlighting for Python code, including keywords, strings, comments, and functions.
+- **Code Folding**: Collapse and expand code blocks like functions, classes, and loops for better code organization.
+- **Autocompletion**: Intelligent suggestions for keywords, variables, and functions as you type.
+- **Error Underlining (Linting)**: Real-time detection and underlining of syntax errors.
+- **Code Snippets**: Quickly insert commonly used code structures through the context menu.
+- **Mini-map**: A scaled-down preview of your code for quick navigation.
+- **Bracket Matching**: Highlights matching brackets to help you keep track of your code structure.
+- **Find and Replace**: Easily search and replace text within your code.
+- **Integrated Terminal**: View the output of your code execution within the application.
+- **Customizable Themes**: Choose from available themes or customize your own for the editor.
+- **Customizable Fonts**: Adjust the font type and size to your preference.
+- **Multi-Tab Interface**: Work on multiple files simultaneously with tabbed editing.
 
-## Use Cases
+---
 
-- **Quick Code Testing**: LAEFEX is perfect for testing small pieces of Python code without the need for a full-fledged IDE.
-- **Learning Python**: A great tool for Python learners to practice and get immediate feedback on their code.
-- **Debugging**: Easily run sections of your code to debug errors or test small functionality.
-
-## How It Works
-
-1. Write your Python code in the text editor.
-2. Click the `Execute` button to run your code.
-3. The output, including any errors, will be displayed in the output area below.
-
-## Getting Started
-
-To use **LAEFEX**, follow these simple steps:
+## Installation
 
 ### Prerequisites
 
-- Python 3.x installed on your machine.
+- **Python 3.7 or higher**
+- **PyQt6**: Python bindings for the Qt application framework.
+- **qtawesome**: Icon library for PyQt.
 
-### Installation
+### Steps
 
-1. Clone the repository:
+1. **Clone the Repository**
+
    ```bash
-   git clone https://github.com/laef1/laefex.git
+   git clone https://github.com/yourusername/LAEFEX.git
+   cd LAEFEX
