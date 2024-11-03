@@ -3,7 +3,7 @@
 import sys
 import os
 from PyQt6.QtWidgets import (
-    QApplication, QMainWindow, QWidget, QVBoxLayout, QSplitter, QPlainTextEdit,
+    QApplication, QMainWindow, QWidget, QVBoxLayout, QPlainTextEdit,
     QTreeWidget, QTreeWidgetItem, QDockWidget, QStatusBar, QFileDialog,
     QMessageBox, QInputDialog, QFontDialog, QTabWidget, QHBoxLayout, QPushButton,
     QMenu, QSizePolicy
@@ -219,18 +219,12 @@ class LAEFEXExecutor(QMainWindow):
         self.theme_manager.apply_theme(theme_name, self)
 
     def new_tab(self):
-        # Splitter to divide code editor and mini-map
-        splitter = QSplitter(Qt.Orientation.Horizontal)
-        splitter.setHandleWidth(1)
-        splitter.setStyleSheet("QSplitter::handle { background-color: #333333 }")
-
-        # Code editor with mini-map
+        # Create a new code editor
         code_editor = CodeEditor()
-        splitter.addWidget(code_editor)
         fade_in_widget(code_editor, duration=800)
 
         # Add to tab widget
-        index = self.tab_widget.addTab(splitter, "Untitled")
+        index = self.tab_widget.addTab(code_editor, "Untitled")
         self.tab_widget.setCurrentIndex(index)
 
     def close_tab(self, index):
@@ -248,25 +242,23 @@ class LAEFEXExecutor(QMainWindow):
 
     def get_current_code_editor(self):
         current_widget = self.tab_widget.currentWidget()
-        if isinstance(current_widget, QSplitter):
-            code_editor = current_widget.widget(0)
-            if isinstance(code_editor, CodeEditor):
-                return code_editor
+        if isinstance(current_widget, CodeEditor):
+            return current_widget
         return None
 
     def run_code(self):
         code_editor = self.get_current_code_editor()
         if code_editor:
-            code = code_editor.editor.toPlainText()  # Updated line
+            code = code_editor.editor.toPlainText()
             self.terminal.clear()
 
-        # Write the code to a temporary file
+            # Write the code to a temporary file
             import tempfile
             with tempfile.NamedTemporaryFile(mode='w', suffix='.py', delete=False) as tmp_file:
                 tmp_file.write(code)
                 tmp_file_path = tmp_file.name
 
-        # Execute the code in a subprocess
+            # Execute the code in a subprocess
             import subprocess
             try:
                 result = subprocess.run(
@@ -282,17 +274,16 @@ class LAEFEXExecutor(QMainWindow):
                     self.terminal.appendPlainText(output)
                 if errors:
                     self.terminal.appendPlainText(errors)
-            # Show terminal if there is output
+                # Show terminal if there is output
                 if output or errors:
                     self.terminal_dock.show()
-            # Since subprocess runs in a separate process, we cannot update the variable explorer
+                # Since subprocess runs in a separate process, we cannot update the variable explorer
                 self.variable_explorer.clear()
             except Exception as e:
                 self.terminal.appendPlainText(str(e))
                 self.terminal_dock.show()
             finally:
                 os.remove(tmp_file_path)  # Clean up the temporary file
-
 
     def debug_code(self):
         QMessageBox.information(self, "Debug", "Debugging not implemented yet.")
