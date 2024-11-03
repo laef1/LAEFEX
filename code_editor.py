@@ -1,21 +1,112 @@
 # code_editor.py
 
 from PyQt6.QtWidgets import (
-    QWidget, QListWidget, QListWidgetItem, QTextEdit,
-    QMenu, QInputDialog, QMessageBox, QSplitter, QVBoxLayout, QPlainTextEdit
+    QPlainTextEdit, QWidget, QTextEdit, QMenu, QInputDialog, QMessageBox, QVBoxLayout, QCompleter
 )
 from PyQt6.QtGui import (
     QTextCursor, QColor, QPainter, QFont, QTextFormat,
-    QTextBlockUserData, QTextCharFormat, QAction, QSyntaxHighlighter
+    QTextCharFormat, QAction, QSyntaxHighlighter
 )
-from PyQt6.QtCore import Qt, QRect, QSize, pyqtSignal, QRegularExpression
+from PyQt6.QtCore import Qt, QRect, QSize, pyqtSignal, QRegularExpression, QStringListModel
 
 import keyword
 import re
 import ast
+import jedi  # Import jedi for advanced autocompletion
 
 # --- Syntax Highlighter ---
-from syntax_highlighter import PythonHighlighter
+class PythonHighlighter(QSyntaxHighlighter):
+    def __init__(self, document):
+        super().__init__(document)
+
+        # Define color scheme similar to VSCode's Python syntax highlighting
+        self.keyword_format = QTextCharFormat()
+        self.keyword_format.setForeground(QColor(86, 156, 214))  # Blue
+
+        self.operator_format = QTextCharFormat()
+        self.operator_format.setForeground(QColor(212, 212, 212))  # Light gray
+
+        self.brace_format = QTextCharFormat()
+        self.brace_format.setForeground(QColor(212, 212, 212))  # Light gray
+
+        self.def_class_format = QTextCharFormat()
+        self.def_class_format.setForeground(QColor(78, 201, 176))  # Teal
+
+        self.string_format = QTextCharFormat()
+        self.string_format.setForeground(QColor(214, 157, 133))  # Orange
+
+        self.comment_format = QTextCharFormat()
+        self.comment_format.setForeground(QColor(87, 166, 74))  # Green
+        self.comment_format.setFontItalic(True)
+
+        self.number_format = QTextCharFormat()
+        self.number_format.setForeground(QColor(181, 206, 168))  # Light green
+
+        self.builtin_format = QTextCharFormat()
+        self.builtin_format.setForeground(QColor(220, 220, 170))  # Light yellow
+
+        self.decorator_format = QTextCharFormat()
+        self.decorator_format.setForeground(QColor(155, 155, 255))  # Purple
+
+        # Regular expressions for syntax highlighting
+        self.rules = []
+
+        # Keywords
+        keywords = keyword.kwlist
+        keyword_patterns = [r'\b' + kw + r'\b' for kw in keywords]
+        self.rules += [(QRegularExpression(pattern), self.keyword_format) for pattern in keyword_patterns]
+
+        # Built-in functions
+        builtins = dir(__builtins__)
+        builtin_patterns = [r'\b' + fn + r'\b' for fn in builtins]
+        self.rules += [(QRegularExpression(pattern), self.builtin_format) for pattern in builtin_patterns]
+
+        # Operators
+        operator_patterns = [
+            r'\+', r'-', r'\*', r'/', r'//', r'%', r'\*\*',
+            r'==', r'!=', r'<', r'<=', r'>', r'>=', r'=', r'\+=', r'-=',
+            r'\*=', r'/=', r'%=', r'\^', r'\|', r'&', r'~', r'>>', r'<<'
+        ]
+        self.rules += [(QRegularExpression(pattern), self.operator_format) for pattern in operator_patterns]
+
+        # Braces
+        brace_patterns = [r'\{', r'\}', r'\(', r'\)', r'\[', r'\]']
+        self.rules += [(QRegularExpression(pattern), self.brace_format) for pattern in brace_patterns]
+
+        # Strings
+        string_patterns = [
+            QRegularExpression(r'".*?"'),  # Double quotes
+            QRegularExpression(r"'.*?'"),  # Single quotes
+            QRegularExpression(r'""".*?"""', QRegularExpression.PatternOption.DotMatchesEverythingOption),
+            QRegularExpression(r"'''.*?'''", QRegularExpression.PatternOption.DotMatchesEverythingOption)
+        ]
+        self.rules += [(pattern, self.string_format) for pattern in string_patterns]
+
+        # Comments
+        self.rules.append((QRegularExpression(r'#.*'), self.comment_format))
+
+        # Numbers
+        self.rules.append((QRegularExpression(r'\b[0-9]+(\.[0-9]+)?\b'), self.number_format))
+
+        # Decorators
+        self.rules.append((QRegularExpression(r'@\w+'), self.decorator_format))
+
+        # Function and class definitions
+        def_class_patterns = [
+            (QRegularExpression(r'\bdef\b\s+(\w+)'), self.def_class_format),
+            (QRegularExpression(r'\bclass\b\s+(\w+)'), self.def_class_format)
+        ]
+        self.rules += def_class_patterns
+
+    def highlightBlock(self, text):
+        for pattern, fmt in self.rules:
+            it = pattern.globalMatch(text)
+            while it.hasNext():
+                match = it.next()
+                start = match.capturedStart()
+                length = match.capturedLength()
+                self.setFormat(start, length, fmt)
+        self.setCurrentBlockState(0)
 
 # --- Error Highlighter ---
 class ErrorHighlighter(QSyntaxHighlighter):
@@ -34,13 +125,6 @@ class ErrorHighlighter(QSyntaxHighlighter):
                 length = len(text) - col_offset
                 self.setFormat(col_offset, length, self.error_format)
 
-# --- Folding Data ---
-class FoldScopeData(QTextBlockUserData):
-    def __init__(self):
-        super().__init__()
-        self.folded = False
-        self.foldable = False
-
 # --- Line Number Area ---
 class LineNumberArea(QWidget):
     def __init__(self, code_editor):
@@ -55,79 +139,63 @@ class LineNumberArea(QWidget):
         self.code_editor.line_number_area_paint_event(event)
 
 # --- Code Editor ---
-class CodeEditor(QWidget):
+class CodeEditor(QPlainTextEdit):
     breakpoint_signal = pyqtSignal(int)
 
     def __init__(self):
         super().__init__()
 
-        # Layout for code editor and mini-map
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(0, 0, 0, 0)
-
-        # Splitter to hold editor and mini-map
-        splitter = QSplitter(Qt.Orientation.Horizontal)
-        layout.addWidget(splitter)
-
-        # Code Editor Area
-        self.editor = QPlainTextEdit()
-        self.editor.setPlaceholderText("# Write your Python code here")
-        self.highlighter = PythonHighlighter(self.editor.document())
-        self.error_highlighter = ErrorHighlighter(self.editor.document())
-        self.editor.blockCountChanged.connect(self.update_folds)
-        self.editor.cursorPositionChanged.connect(self.highlight_current_line)
-        self.editor.textChanged.connect(self.parse_code)
-        self.editor.installEventFilter(self)
+        self.setPlaceholderText("# Write your Python code here")
+        self.highlighter = PythonHighlighter(self.document())
+        self.error_highlighter = ErrorHighlighter(self.document())
 
         # Line Number Area
         self.line_number_area = LineNumberArea(self)
-        self.editor.updateRequest.connect(self.update_line_number_area)
-        self.editor.viewport().installEventFilter(self)
 
-        # Mini-map Area
-        self.mini_map = QPlainTextEdit()
-        self.mini_map.setReadOnly(True)
-        self.mini_map.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        self.mini_map.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        self.mini_map.setStyleSheet("background-color: #1e1e1e; color: #555555;")
-        self.mini_map.setFont(QFont("Courier", 2))
-
-        # Add widgets to splitter
-        splitter.addWidget(self.line_number_area)
-        splitter.addWidget(self.editor)
-        splitter.addWidget(self.mini_map)
-        splitter.setSizes([30, 800, 100])
+        # Set tab width
+        self.setTabStopDistance(4 * self.fontMetrics().horizontalAdvance(' '))
 
         # Variables for code analysis
         self.variables = set()
         self.functions = set()
 
         # Autocomplete
-        self.completer = QListWidget()
-        self.completer.hide()
-        self.completer.itemClicked.connect(self.insert_completion)
         self.keywords = sorted(keyword.kwlist + [
             'print', 'len', 'range', 'int', 'float', 'str', 'list', 'dict',
             'set', 'tuple', 'input', 'open', 'close', 'exit', 'help', 'type'
         ])
+        self.completer = QCompleter()
+        self.completer.setWidget(self)
+        self.completer.setCompletionMode(QCompleter.CompletionMode.PopupCompletion)
+        self.completer.setCaseSensitivity(Qt.CaseSensitivity.CaseInsensitive)
+        self.completer.activated.connect(self.insert_completion)
 
         # Bracket Matching
         self.bracket_positions = []
 
-        # Update folds
-        self.update_folds()
+        # Update line number area width
+        self.update_line_number_area_width(0)
+
+        # Connect signals after initializing line_number_area
+        self.blockCountChanged.connect(self.update_line_number_area_width)
+        self.updateRequest.connect(self.update_line_number_area)
+        self.cursorPositionChanged.connect(self.highlight_current_line)
+        self.textChanged.connect(self.parse_code)
 
     # --- Event Filter ---
     def eventFilter(self, source, event):
-        if event.type() == event.Type.Paint and source is self.editor.viewport():
+        if event.type() == event.Type.Paint and source is self.viewport():
             self.line_number_area.update()
         return super().eventFilter(source, event)
 
-    # --- Line Numbers and Folding ---
+    # --- Line Numbers ---
     def line_number_area_width(self):
-        digits = len(str(max(1, self.editor.blockCount())))
-        space = 12 + 3 + self.editor.fontMetrics().horizontalAdvance('9') * digits
+        digits = len(str(max(1, self.blockCount())))
+        space = 12 + 3 + self.fontMetrics().horizontalAdvance('9') * digits
         return space
+
+    def update_line_number_area_width(self, _):
+        self.setViewportMargins(self.line_number_area_width(), 0, 0, 0)
 
     def update_line_number_area(self, rect, dy):
         if dy:
@@ -135,27 +203,23 @@ class CodeEditor(QWidget):
         else:
             self.line_number_area.update(0, rect.y(), self.line_number_area.width(), rect.height())
 
-        if rect.contains(self.editor.viewport().rect()):
+        if rect.contains(self.viewport().rect()):
             self.update_line_number_area_width(0)
-
-    def update_line_number_area_width(self, _):
-        self.editor.setViewportMargins(self.line_number_area_width(), 0, 0, 0)
 
     def resizeEvent(self, event):
         super().resizeEvent(event)
-        cr = self.editor.contentsRect()
+        cr = self.contentsRect()
         self.line_number_area.setGeometry(
-            QRect(self.editor.viewport().geometry().left(), cr.top(), self.line_number_area_width(), cr.height()))
-        self.update_mini_map()
+            QRect(cr.left(), cr.top(), self.line_number_area_width(), cr.height()))
 
     def line_number_area_paint_event(self, event):
         painter = QPainter(self.line_number_area)
         painter.fillRect(event.rect(), QColor('#1e1e1e'))
 
-        block = self.editor.firstVisibleBlock()
+        block = self.firstVisibleBlock()
         block_number = block.blockNumber()
-        top = int(self.editor.blockBoundingGeometry(block).translated(self.editor.contentOffset()).top())
-        bottom = top + int(self.editor.blockBoundingRect(block).height())
+        top = int(self.blockBoundingGeometry(block).translated(self.contentOffset()).top())
+        bottom = top + int(self.blockBoundingRect(block).height())
 
         font = QFont()
         font.setBold(True)
@@ -167,110 +231,92 @@ class CodeEditor(QWidget):
                 # Draw line number
                 painter.setPen(QColor('#757575'))
                 painter.drawText(0, top, self.line_number_area.width() - 5,
-                                 self.editor.fontMetrics().height(),
+                                 self.fontMetrics().height(),
                                  Qt.AlignmentFlag.AlignRight, number)
 
             block = block.next()
             top = bottom
-            bottom = top + int(self.editor.blockBoundingRect(block).height())
+            bottom = top + int(self.blockBoundingRect(block).height())
             block_number += 1
 
-    # --- Events ---
-    def mousePressEvent(self, event):
-        if event.button() == Qt.MouseButton.LeftButton:
-            if event.pos().x() < self.line_number_area.width():
-                x = event.pos().x()
-                if x < self.line_number_area.width():
-                    # Line number area clicked
-                    cursor = self.editor.cursorForPosition(event.pos())
-                    line = cursor.blockNumber() + 1
-                    # Implement breakpoint logic if needed
-                    return
-        super().mousePressEvent(event)
+        painter.end()  # Explicitly end the painter
 
+    # --- Key Press Event ---
     def keyPressEvent(self, event):
-        # Handle autocomplete navigation
-        if self.completer.isVisible():
-            if event.key() == Qt.Key.Key_Down:
-                current_row = self.completer.currentRow()
-                if current_row < self.completer.count() - 1:
-                    self.completer.setCurrentRow(current_row + 1)
-                return
-            elif event.key() == Qt.Key.Key_Up:
-                current_row = self.completer.currentRow()
-                if current_row > 0:
-                    self.completer.setCurrentRow(current_row - 1)
-                return
-            elif event.key() in (Qt.Key.Key_Enter, Qt.Key.Key_Return):
-                current_item = self.completer.currentItem()
-                if current_item:
-                    self.insert_completion(current_item)
-                return
+        key = event.key()
+        modifiers = event.modifiers()
 
-        if event.key() == Qt.Key.Key_Tab:
-            cursor = self.editor.textCursor()
+        if key == Qt.Key.Key_Return or key == Qt.Key.Key_Enter:
+            cursor = self.textCursor()
+            cursor.insertText('\n')
+            self.auto_indent(cursor)
+            event.accept()
+            return
+        elif key == Qt.Key.Key_Tab and not modifiers & Qt.KeyboardModifier.ShiftModifier:
+            # Indent
+            cursor = self.textCursor()
             if cursor.hasSelection():
-                # Indent selected lines
                 self.indent_selection()
             else:
-                # Insert spaces equivalent to a tab
                 cursor.insertText(' ' * 4)
             event.accept()
             return
-        elif event.key() == Qt.Key.Key_Backtab:
-            cursor = self.editor.textCursor()
+        elif key == Qt.Key.Key_Backtab or (key == Qt.Key.Key_Tab and modifiers & Qt.KeyboardModifier.ShiftModifier):
+            # Unindent
+            cursor = self.textCursor()
             if cursor.hasSelection():
-                # Unindent selected lines
                 self.unindent_selection()
             else:
-                # Remove indentation from the current line
                 self.unindent_line()
-            event.accept()
-            return
-        elif event.key() == Qt.Key.Key_Backspace:
-            # Handle backspace properly to remove spaces
-            cursor = self.editor.textCursor()
-            if cursor.selectionStart() == cursor.selectionEnd():
-                # No selection, delete spaces equivalent to a tab if at indentation
-                cursor.movePosition(QTextCursor.MoveOperation.Left, QTextCursor.MoveMode.KeepAnchor, 4)
-                if cursor.selectedText() == ' ' * 4:
-                    cursor.removeSelectedText()
-                else:
-                    # Move back to original position and delete one character
-                    cursor.clearSelection()
-                    cursor.movePosition(QTextCursor.MoveOperation.Right, QTextCursor.MoveMode.MoveAnchor, 4)
-                    super(QPlainTextEdit, self.editor).keyPressEvent(event)
-            else:
-                # If text is selected, delete as usual
-                super(QPlainTextEdit, self.editor).keyPressEvent(event)
             event.accept()
             return
 
         # Call the base class implementation
-        super(QPlainTextEdit, self.editor).keyPressEvent(event)
+        super().keyPressEvent(event)
 
-        # Only trigger autocomplete on character keys
-        if event.text().isalpha() or event.text() == '_':
-            cursor = self.editor.textCursor()
-            cursor.select(QTextCursor.SelectionType.WordUnderCursor)
-            word = cursor.selectedText()
-            if word:
-                self.all_completions = sorted(set(
-                    self.keywords + list(self.variables) + list(self.functions)))
-                matches = [kw for kw in self.all_completions if kw.startswith(word)]
-                if matches:
-                    self.show_completer(matches)
+        # Start autocompletion after certain keys
+        completion_prefix = self.text_under_cursor()
+        if completion_prefix != self.completer.completionPrefix():
+            self.completer.setCompletionPrefix(completion_prefix)
+            self.completer.popup().setCurrentIndex(
+                self.completer.completionModel().index(0, 0))
+
+        if len(event.text()) > 0 and completion_prefix:
+            cr = self.cursorRect()
+            cr.setWidth(self.completer.popup().sizeHintForColumn(0)
+                        + self.completer.popup().verticalScrollBar().sizeHint().width())
+            self.completer.complete(cr)
         else:
-            self.completer.hide()
+            self.completer.popup().hide()
 
-        self.parse_code()
         self.error_highlighter.rehighlight()
-        self.update_folds()
         self.highlight_matching_brackets()
 
-    # Additional methods for indentation handling
+    def text_under_cursor(self):
+        cursor = self.textCursor()
+        cursor.select(QTextCursor.SelectionType.WordUnderCursor)
+        return cursor.selectedText()
+
+    def insert_completion(self, completion):
+        tc = self.textCursor()
+        extra = completion[len(self.completer.completionPrefix()):]
+        tc.insertText(extra)
+        self.setTextCursor(tc)
+
+    # --- Auto Indentation ---
+    def auto_indent(self, cursor):
+        block_text = cursor.block().previous().text()
+        indentation = re.match(r'^\s*', block_text).group()
+        cursor.insertText(indentation)
+
+        # Increase indentation after a colon
+        if re.search(r':\s*$', block_text):
+            cursor.insertText(' ' * 4)
+
+        self.setTextCursor(cursor)
+
     def indent_selection(self):
-        cursor = self.editor.textCursor()
+        cursor = self.textCursor()
         start = cursor.selectionStart()
         end = cursor.selectionEnd()
         cursor.setPosition(start)
@@ -282,7 +328,7 @@ class CodeEditor(QWidget):
             end += 4  # Adjust end position due to added spaces
 
     def unindent_selection(self):
-        cursor = self.editor.textCursor()
+        cursor = self.textCursor()
         start = cursor.selectionStart()
         end = cursor.selectionEnd()
         cursor.setPosition(start)
@@ -296,33 +342,28 @@ class CodeEditor(QWidget):
                 break
 
     def unindent_line(self):
-        cursor = self.editor.textCursor()
+        cursor = self.textCursor()
         cursor.movePosition(QTextCursor.MoveOperation.StartOfLine)
         cursor.movePosition(QTextCursor.MoveOperation.Right, QTextCursor.MoveMode.KeepAnchor, 4)
         if cursor.selectedText() == ' ' * 4:
             cursor.removeSelectedText()
 
-    # --- Code Folding ---
-    def update_folds(self, _=None):
-        # Implement folding logic if needed
-        pass
-
     # --- Highlight Current Line ---
     def highlight_current_line(self):
         extra_selections = []
-        if not self.editor.isReadOnly():
+        if not self.isReadOnly():
             selection = QTextEdit.ExtraSelection()
             line_color = QColor('#292929')
             selection.format.setBackground(line_color)
             selection.format.setProperty(QTextFormat.Property.FullWidthSelection, True)
-            selection.cursor = self.editor.textCursor()
+            selection.cursor = self.textCursor()
             selection.cursor.clearSelection()
             extra_selections.append(selection)
-        self.editor.setExtraSelections(extra_selections)
+        self.setExtraSelections(extra_selections)
 
-    # --- Autocomplete ---
+    # --- Parse Code ---
     def parse_code(self):
-        code = self.editor.toPlainText()
+        code = self.toPlainText()
         try:
             tree = ast.parse(code)
             self.variables = set()
@@ -336,74 +377,79 @@ class CodeEditor(QWidget):
                             self.variables.add(target.id)
         except:
             pass  # Ignore parsing errors
-        self.update_mini_map()
 
-    def show_completer(self, completions):
-        self.completer.clear()
-        for c in completions:
-            item = QListWidgetItem(c)
-            self.completer.addItem(item)
-        self.completer.setCurrentRow(0)
-        cursor_rect = self.editor.cursorRect()
-        point = self.editor.mapToGlobal(cursor_rect.bottomRight())
-        self.completer.move(point)
-        self.completer.resize(200, self.completer.sizeHintForRow(0) * min(6, len(completions)))
-        self.completer.show()
+        # Update the completer model using jedi
+        self.update_completions()
 
-    def insert_completion(self, item):
-        cursor = self.editor.textCursor()
-        cursor.select(QTextCursor.SelectionType.WordUnderCursor)
-        word = cursor.selectedText()
-        cursor.insertText(item.text()[len(word):])
-        self.completer.hide()
+    def update_completions(self):
+        code = self.toPlainText()
+        cursor = self.textCursor()
+        line = cursor.blockNumber() + 1
+        column = cursor.columnNumber()
+        try:
+            script = jedi.Script(code, path='')
+            completions = script.complete(line, column)
+            completion_list = [c.name for c in completions]
+            if completion_list:
+                self.completer.setModel(QStringListModel(completion_list))
+            else:
+                # Fallback to keywords
+                self.completer.setModel(QStringListModel(self.keywords))
+        except Exception as e:
+            # Fallback to keywords if jedi fails
+            self.completer.setModel(QStringListModel(self.keywords))
 
     # --- Bracket Matching ---
     def highlight_matching_brackets(self):
         extra_selections = []
-        cursor = self.editor.textCursor()
+        cursor = self.textCursor()
         block = cursor.block()
         text = block.text()
-        pos = cursor.positionInBlock()
+        pos = cursor.positionInBlock() - 1
 
         brackets = {'(': ')', '[': ']', '{': '}'}
         rev_brackets = {v: k for k, v in brackets.items()}
 
-        if pos > 0 and text[pos - 1] in brackets:
-            char = text[pos - 1]
+        if pos >= 0 and text[pos] in brackets:
+            char = text[pos]
             match_char = brackets[char]
             direction = 1
-            start_pos = pos - 1
-        elif pos < len(text) and text[pos] in rev_brackets:
-            char = text[pos]
+            start_pos = pos
+        elif pos + 1 < len(text) and text[pos + 1] in rev_brackets:
+            char = text[pos + 1]
             match_char = rev_brackets[char]
             direction = -1
-            start_pos = pos
+            start_pos = pos + 1
         else:
+            self.setExtraSelections(extra_selections)
             return
 
         match_pos = self.find_matching_bracket(block, start_pos, char, match_char, direction)
         if match_pos:
-            format = QTextCharFormat()
-            format.setBackground(QColor('#49483E'))
-            positions = [cursor.position()]
-            positions.append(match_pos)
-            for position in positions:
+            fmt = QTextCharFormat()
+            fmt.setBackground(QColor('#49483E'))
+            # Highlight the brackets
+            for position in [cursor.position(), match_pos]:
                 selection = QTextEdit.ExtraSelection()
-                temp_cursor = self.editor.textCursor()
+                temp_cursor = self.textCursor()
                 temp_cursor.setPosition(position)
                 temp_cursor.movePosition(QTextCursor.MoveOperation.Right, QTextCursor.MoveMode.KeepAnchor)
                 selection.cursor = temp_cursor
-                selection.format = format
+                selection.format = fmt
                 extra_selections.append(selection)
-            self.editor.setExtraSelections(extra_selections)
+            self.setExtraSelections(extra_selections)
+        else:
+            self.setExtraSelections(extra_selections)
 
     def find_matching_bracket(self, block, pos, char, match_char, direction):
         text = block.text()
         stack = 1
+        block_number = block.blockNumber()
         while True:
             pos += direction
             if pos < 0 or pos >= len(text):
-                block = block.next() if direction > 0 else block.previous()
+                block_number += direction
+                block = self.document().findBlockByNumber(block_number)
                 if not block.isValid():
                     return None
                 text = block.text()
@@ -417,14 +463,11 @@ class CodeEditor(QWidget):
                 cursor = QTextCursor(block)
                 cursor.setPosition(block.position() + pos)
                 return cursor.position()
-    
-    # --- Mini-map ---
-    def update_mini_map(self):
-        self.mini_map.setPlainText(self.editor.toPlainText())
+        return None
 
     # --- Context Menu ---
     def contextMenuEvent(self, event):
-        menu = self.editor.createStandardContextMenu()
+        menu = self.createStandardContextMenu()
 
         # Find and Replace
         find_action = QAction('Find', self)
@@ -438,15 +481,15 @@ class CodeEditor(QWidget):
         # Code Snippets
         snippets_menu = QMenu("Insert Snippet", self)
         snippet_actions = {
-            'If Statement': 'if condition:\n    pass',
-            'For Loop': 'for item in iterable:\n    pass',
-            'While Loop': 'while condition:\n    pass',
-            'Function': 'def function_name(parameters):\n    pass',
-            'Class': 'class ClassName:\n    def __init__(self):\n        pass'
+            'If Statement': 'if condition:\n    ',
+            'For Loop': 'for item in iterable:\n    ',
+            'While Loop': 'while condition:\n    ',
+            'Function': 'def function_name(parameters):\n    ',
+            'Class': 'class ClassName:\n    def __init__(self):\n        '
         }
         for name, code in snippet_actions.items():
             action = QAction(name, self)
-            action.triggered.connect(lambda checked, c=code: self.editor.insertPlainText(c))
+            action.triggered.connect(lambda checked, c=code: self.insertPlainText(c))
             snippets_menu.addAction(action)
         menu.addMenu(snippets_menu)
 
@@ -459,13 +502,13 @@ class CodeEditor(QWidget):
             self.find_text(text)
 
     def find_text(self, text):
-        if self.editor.find(text):
+        if self.find(text):
             pass
         else:
-            cursor = self.editor.textCursor()
+            cursor = self.textCursor()
             cursor.setPosition(0)
-            self.editor.setTextCursor(cursor)
-            if self.editor.find(text):
+            self.setTextCursor(cursor)
+            if self.find(text):
                 pass
             else:
                 QMessageBox.information(self, 'Find', 'Text not found.')
@@ -478,10 +521,10 @@ class CodeEditor(QWidget):
                 self.replace_text(find_text, replace_text)
 
     def replace_text(self, find_text, replace_text):
-        cursor = self.editor.textCursor()
+        cursor = self.textCursor()
         cursor.beginEditBlock()
-        while self.editor.find(find_text):
-            cursor = self.editor.textCursor()
+        while self.find(find_text):
+            cursor = self.textCursor()
             cursor.insertText(replace_text)
         cursor.endEditBlock()
-        self.editor.setTextCursor(cursor)
+        self.setTextCursor(cursor)
